@@ -1,83 +1,42 @@
-const path = require('path');
-const StepFunctionsLocal = require('stepfunctions-localhost');
 const AWS = require('aws-sdk');
-const tcpPortUsed = require('tcp-port-used');
-const chalk = require('chalk');
-const readLine = require('readline');
 
-class ServerlessStepFunctionsLocal {
+class ServerlessStepFunctionsOffline {
   constructor(serverless, options) {
     this.serverless = serverless;
     this.service = serverless.service;
     this.options = options;
 
     this.log = serverless.cli.log.bind(serverless.cli);
-    this.config = (this.service.custom && this.service.custom.stepFunctionsLocal) || {};
+    this.config = (this.service.custom && this.service.custom['step-functions-offline']) || {};
 
     // Check config
     if (!this.config.accountId) {
-      throw new Error('Step Functions Local: missing accountId');
+      throw new Error('Step Functions Offline: missing accountId');
     }
 
     if (!this.config.region) {
-      throw new Error('Step Functions Local: missing region');
+      throw new Error('Step Functions Offline: missing region');
     }
 
     if (!this.config.lambdaEndpoint) {
       this.config.lambdaEndpoint = 'http://localhost:4000';
     }
 
-    if (!this.config.path) {
-      this.config.path = './.step-functions-local';
+    if (!this.config.stepFunctionsEndpoint) {
+      this.config.stepFunctionsEndpoint = 'http://localhost:8083';
     }
 
-    this.stepfunctionsServer = new StepFunctionsLocal(this.config);
-
-    this.stepfunctionsAPI = new AWS.StepFunctions({ endpoint: 'http://localhost:8083', region: this.config.region });
-
-    this.eventBridgeEventsEnabled = this.config.eventBridgeEvents && this.config.eventBridgeEvents.enabled;
-    if (this.eventBridgeEventsEnabled) {
-      this.eventBridgeAPI = new AWS.EventBridge({ endpoint: this.config.eventBridgeEvents.endpoint, region: this.config.region });
-    }
-
-    this.hooks = {
-      'offline:start:init': async () => {
-        await this.installStepFunctions();
-        await this.startStepFunctions();
-        await this.getStepFunctionsFromConfig();
-        await this.createEndpoints();
-      },
-      'before:offline:start:end': async () => {
-        await this.stopStepFunctions();
-      }
-    };
-  }
-
-  installStepFunctions() {
-    return this.stepfunctionsServer.install();
-  }
-
-  async startStepFunctions() {
-    let serverStdout = this.stepfunctionsServer.start({
-      account: this.config.accountId.toString(),
-      lambdaEndpoint: this.config.lambdaEndpoint,
+    this.stepfunctionsAPI = new AWS.StepFunctions({ 
+      endpoint: this.config.stepFunctionsEndpoint, 
       region: this.config.region
     });
 
-    readLine.createInterface({ input: serverStdout }).on('line', line => {
-      console.log(chalk.blue('[Serverless Step Functions Local]'), line.trim());
-
-      if (this.eventBridgeEventsEnabled) {
-        this.sendEventBridgeEvent(line.trim());
+    this.hooks = {
+      'offline:start:init': async () => {
+        await this.getStepFunctionsFromConfig();
+        await this.createEndpoints();
       }
-    });
-
-    // Wait for server to start
-    await tcpPortUsed.waitUntilUsed(8083, 200, 10000);
-  }
-
-  stopStepFunctions() {
-    return this.stepfunctionsServer.stop();
+    };
   }
 
   async getStepFunctionsFromConfig() {
@@ -85,12 +44,12 @@ class ServerlessStepFunctionsLocal {
     this.stateMachines = parsed.stepFunctions.stateMachines;
 
     if (parsed.custom &&
-      parsed.custom.stepFunctionsLocal &&
-      parsed.custom.stepFunctionsLocal.TaskResourceMapping
+      parsed.custom['step-functions-offline'] &&
+      parsed.custom['step-functions-offline'].TaskResourceMapping
     ) {
       this.replaceTaskResourceMappings(
         parsed.stepFunctions.stateMachines,
-        parsed.custom.stepFunctionsLocal.TaskResourceMapping
+        parsed.custom['step-functions-offline'].TaskResourceMapping
       );
     }
   }
@@ -126,78 +85,6 @@ class ServerlessStepFunctionsLocal {
       process.env[`OFFLINE_STEP_FUNCTIONS_ARN_${endpoint.stateMachineArn.split(':')[6]}`] = endpoint.stateMachineArn;
     }
   }
-
-  sendEventBridgeEvent(logLine) {
-    let pattern = /(?<date>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}.\d{3}): (?<executionArn>.+) : (?<data>.+)/;
-    let match = pattern.exec(logLine);
-
-    if (match !== null) {
-      let eventDate = Date.parse(match.groups.date);
-
-      // Eg. arn:aws:states:us-east-1:101010101010:execution:state-machine-id:execution-id
-      let eventExecutionArn = match.groups.executionArn;
-      let eventExecutionName = eventExecutionArn.split(':').pop();
-      let eventStatemachineArn = eventExecutionArn.replace(':execution:', ':stateMachine:').split(':').slice(0, -1).join(':');
-
-      let eventData = JSON.parse(match.groups.data);
-
-      let eventStatus;
-      let eventStartDate = null;
-      let eventStopDate = null;
-
-      // https://docs.aws.amazon.com/step-functions/latest/dg/cw-events.html
-      // https://docs.aws.amazon.com/step-functions/latest/apireference/API_HistoryEvent.html
-      switch (eventData.Type) {
-        case 'ExecutionAborted':
-          eventStatus = "ABORTED";
-          eventStopDate = eventDate;
-          break;
-        case 'ExecutionFailed':
-          eventStatus = "FAILED";
-          eventStopDate = eventDate;
-          break;
-        case 'ExecutionStarted':
-          eventStatus = "RUNNING";
-          eventStartDate = eventDate;
-          break;
-        case 'ExecutionSucceeded':
-          eventStatus = "SUCCEEDED";
-          eventStopDate = eventDate;
-          break;
-        case 'ExecutionTimedOut':
-          eventStatus = "TIMED_OUT";
-          eventStopDate = eventDate;
-          break;
-      }
-
-      if (eventStatus !== undefined) {
-        let params = {
-          Entries: [
-            {
-              Detail: JSON.stringify({
-                executionArn: eventExecutionArn,
-                stateMachineArn: eventStatemachineArn,
-                name: eventExecutionName,
-                status: eventStatus,
-                startDate: eventStartDate,
-                stopDate: eventStopDate
-              }),
-              DetailType: 'Step Functions Execution Status Change',
-              Resources: [eventExecutionArn],
-              Source: 'aws.states',
-              Time: eventDate
-            }
-          ]
-        };
-
-        this.eventBridgeAPI.putEvents(params, function(err, data) {
-          if (err) {
-            console.error(chalk.bgRed('[Serverless Step Functions Local]'), err, err.stack);
-          }
-        });
-      }
-    }
-  }
 }
 
-module.exports = ServerlessStepFunctionsLocal;
+module.exports = ServerlessStepFunctionsOffline;
