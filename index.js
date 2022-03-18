@@ -18,10 +18,6 @@ class ServerlessStepFunctionsOffline {
       throw new Error('Step Functions Offline: missing region');
     }
 
-    if (!this.config.lambdaEndpoint) {
-      this.config.lambdaEndpoint = 'http://localhost:4000';
-    }
-
     if (!this.config.stepFunctionsEndpoint) {
       this.config.stepFunctionsEndpoint = 'http://localhost:8083';
     }

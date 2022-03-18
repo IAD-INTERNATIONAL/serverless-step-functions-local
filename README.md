@@ -2,6 +2,9 @@
 
 Run AWS step functions offline with Serverless!
 
+On Serverless online start this plugin will create state machine defined on the serverless
+configuration file.
+
 This is a plugin for the [Serverless Framework](https://serverless.com/).
 
 ## Requirements
@@ -47,7 +50,6 @@ It also adds an environment variable for each created state machine that contain
 
 - `accountId` (required) your AWS account ID
 - `region` (required) your AWS region
-- `lambdaEndpoint` (defaults to `http://localhost:4000`) the endpoint for the lambda service
 - `stepFunctionsEndpoint` (defaults to `http://localhost:8083`) the endpoint for the AWS step functions local service
 - `TaskResourceMapping` allows for Resource ARNs to be configured differently for local development
 
