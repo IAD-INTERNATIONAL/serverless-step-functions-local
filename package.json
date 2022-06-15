@@ -12,7 +12,7 @@
     "aws-sdk": "^2.476.0"
   },
   "peerDependencies": {
-    "serverless": "^2.32.0"
+    "serverless": "^2 || ^3"
   },
   "xo": {
     "space": true

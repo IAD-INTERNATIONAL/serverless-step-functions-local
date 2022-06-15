@@ -11,7 +11,6 @@ This is a plugin for the [Serverless Framework](https://serverless.com/).
 
 - serverless >= v2.32.0
 - The [serverless-offline](https://www.npmjs.com/package/serverless-offline) plugin
-- The [serverless-offline-lambda](https://www.npmjs.com/package/serverless-offline-lambda) plugin
 - The [serverless-step-functions](https://www.npmjs.com/package/serverless-step-functions) plugin
 - [AWS Step Functions local service](https://docs.aws.amazon.com/step-functions/latest/dg/sfn-local.html)
 
@@ -28,7 +27,6 @@ plugins:
   ...
   - serverless-step-functions
   - serverless-step-functions-offline
-  - serverless-offline-lambda
   - serverless-offline
   ...
 ```
@@ -61,7 +59,6 @@ service: offline-step-function
 plugins:
   - serverless-step-functions
   - serverless-step-functions-offline
-  - serverless-offline-lambda
   - serverless-offline
 
 provider:
