@@ -1,10 +1,9 @@
 const AWS = require('aws-sdk');
 
 class ServerlessStepFunctionsOffline {
-  constructor(serverless, options) {
+  constructor(serverless) {
     this.serverless = serverless;
     this.service = serverless.service;
-    this.options = options;
 
     this.log = serverless.cli.log.bind(serverless.cli);
     this.config = (this.service.custom && this.service.custom['step-functions-offline']) || {};
@@ -51,15 +50,19 @@ class ServerlessStepFunctionsOffline {
   }
 
   /**
-   * Replaces Resource properties with values mapped in TaskResourceMapping
-   */
+    * Replaces Resource properties with values mapped in TaskResourceMapping
+    */
   replaceTaskResourceMappings(input, replacements, parentKey) {
     for (const key in input) {
       if ({}.hasOwnProperty.call(input, key)) {
         const property = input[key];
         if (['object', 'array'].indexOf(typeof property) > -1) {
           if (input.Resource && replacements[parentKey]) {
-            input.Resource = replacements[parentKey];
+            if (typeof input.Resource === 'string' && input.Resource.indexOf('.waitForTaskToken') > -1) {
+              input.Parameters.FunctionName = replacements[parentKey];
+            } else {
+              input.Resource = replacements[parentKey];
+            }
           }
 
           // Recursive replacement of nested states
@@ -73,7 +76,7 @@ class ServerlessStepFunctionsOffline {
     for (const stateMachineName in this.stateMachines) {
       const endpoint = await this.stepfunctionsAPI.createStateMachine({
         definition: JSON.stringify(this.stateMachines[stateMachineName].definition),
-        name: stateMachineName,
+        name: this.stateMachines[stateMachineName].name || stateMachineName,
         roleArn: `arn:aws:iam::${this.config.accountId}:role/DummyRole`
       }).promise();
 
