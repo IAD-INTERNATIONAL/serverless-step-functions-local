@@ -21,8 +21,8 @@ class ServerlessStepFunctionsOffline {
       this.config.stepFunctionsEndpoint = 'http://localhost:8083';
     }
 
-    this.stepfunctionsAPI = new AWS.StepFunctions({ 
-      endpoint: this.config.stepFunctionsEndpoint, 
+    this.stepfunctionsAPI = new AWS.StepFunctions({
+      endpoint: this.config.stepFunctionsEndpoint,
       region: this.config.region
     });
 
@@ -78,7 +78,20 @@ class ServerlessStepFunctionsOffline {
         definition: JSON.stringify(this.stateMachines[stateMachineName].definition),
         name: this.stateMachines[stateMachineName].name || stateMachineName,
         roleArn: `arn:aws:iam::${this.config.accountId}:role/DummyRole`
-      }).promise();
+      }).promise().catch(e => {
+
+        if (e.name == 'StateMachineAlreadyExists') {
+          const arn = e.message.replace('State Machine Already Exists: ', '').replaceAll('\'', '')
+
+          return this.stepfunctionsAPI.updateStateMachine({
+            stateMachineArn: arn,
+            definition: JSON.stringify(this.stateMachines[stateMachineName].definition)
+          }).promise().then(res => ({ ...res, stateMachineArn: arn }))
+
+        }
+
+        throw e
+      });
 
       // Set environment variables with references to ARNs
       process.env[`OFFLINE_STEP_FUNCTIONS_ARN_${endpoint.stateMachineArn.split(':')[6]}`] = endpoint.stateMachineArn;
