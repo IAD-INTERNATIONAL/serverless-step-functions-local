@@ -74,8 +74,10 @@ class ServerlessStepFunctionsOffline {
 
   async createEndpoints() {
     for (const stateMachineName in this.stateMachines) {
+      const definition = this.removeDistributedAttributes(this.stateMachines[stateMachineName].definition)
+
       const endpoint = await this.stepfunctionsAPI.createStateMachine({
-        definition: JSON.stringify(this.stateMachines[stateMachineName].definition),
+        definition: JSON.stringify(definition),
         name: this.stateMachines[stateMachineName].name || stateMachineName,
         roleArn: `arn:aws:iam::${this.config.accountId}:role/DummyRole`
       }).promise().catch(e => {
@@ -85,7 +87,8 @@ class ServerlessStepFunctionsOffline {
 
           return this.stepfunctionsAPI.updateStateMachine({
             stateMachineArn: arn,
-            definition: JSON.stringify(this.stateMachines[stateMachineName].definition)
+            definition: JSON.stringify(definition),
+            roleArn: `arn:aws:iam::${this.config.accountId}:role/DummyRole`
           }).promise().then(res => ({ ...res, stateMachineArn: arn }))
 
         }
