@@ -16,7 +16,7 @@ This is a plugin for the [Serverless Framework](https://serverless.com/).
 
 ## Install
 
-`npm install @jeromemacias/serverless-step-functions-offline -D`
+`npm install @IAD-INTERNATIONAL/serverless-step-functions-offline -D`
 
 ## Getting Started
 
@@ -63,8 +63,7 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs14.x
-
+  runtime: nodejs22.x
 
 custom:
   step-functions-offline:
