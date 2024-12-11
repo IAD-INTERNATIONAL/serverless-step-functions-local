@@ -72,6 +72,60 @@ class ServerlessStepFunctionsOffline {
     }
   }
 
+  removeDistributedAttributes(definition) {
+    for (const key in definition.States) {
+      if (definition.States[key].Type == 'Map' && definition.States[key].ItemProcessor) {
+        const processorConfig = definition.States[key].ItemProcessor.ProcessorConfig
+        if (processorConfig && processorConfig.Mode === 'DISTRIBUTED') {
+          const { MaxItemsPerBatch, BatchInput } = definition.States[key].ItemBatcher || {}
+          const { Parameters } = definition.States[key].ItemReader || {}
+
+          delete definition.States[key].ItemBatcher
+          delete definition.States[key].ItemReader
+          delete definition.States[key].ItemProcessor.ProcessorConfig
+          delete definition.States[key].MaxConcurrencyPath
+
+          const previousStateKey = Object.keys(definition.States).find(previousKey => {
+            if (definition.States[previousKey].Type === 'Choice') {
+              return !!definition.States[previousKey].Choices.find(choice => choice.Next === key)
+            }
+
+            return definition.States[previousKey].Next === key
+          })
+
+          const itemReaderMockState = {
+            Type: 'Task',
+            Resource: this.config.distributedMapResource,
+            Parameters: {
+              ...(Parameters || {}),
+              MaxItemsPerBatch,
+              ...(BatchInput || {})
+            },
+            Next: key
+          }
+
+          const itemReaderMockStateKey = 'Prepare' + key
+          definition.States[itemReaderMockStateKey] = itemReaderMockState
+          if (definition.States[previousStateKey].Type === 'Choice') {
+            definition.States[previousStateKey].Choices = definition.States[previousStateKey].Choices.map(choice => {
+              if (choice.Next && choice.Next === key) {
+                choice.Next = 'Prepare' + key
+              }
+
+              return choice
+            })
+          } else {
+            definition.States[previousStateKey].Next = itemReaderMockStateKey
+          }
+        }
+
+        definition.States[key].ItemProcessor = this.removeDistributedAttributes(definition.States[key].ItemProcessor)
+      }
+    }
+
+    return definition
+  }
+
   async createEndpoints() {
     for (const stateMachineName in this.stateMachines) {
       const definition = this.removeDistributedAttributes(this.stateMachines[stateMachineName].definition)
@@ -84,7 +138,6 @@ class ServerlessStepFunctionsOffline {
 
         if (e.name == 'StateMachineAlreadyExists') {
           const arn = e.message.replace('State Machine Already Exists: ', '').replaceAll('\'', '')
-
           return this.stepfunctionsAPI.updateStateMachine({
             stateMachineArn: arn,
             definition: JSON.stringify(definition),
