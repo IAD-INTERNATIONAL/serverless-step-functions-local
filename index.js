@@ -58,7 +58,7 @@ class ServerlessStepFunctionsOffline {
         const property = input[key];
         if (['object', 'array'].indexOf(typeof property) > -1) {
           if (input.Resource && replacements[parentKey]) {
-            if (typeof input.Resource === 'string' && input.Resource.indexOf('.waitForTaskToken') > -1) {
+            if (typeof input.Resource === 'string' && input.Resource.indexOf('arn:aws:states:::lambda:invoke') > -1) {
               input.Parameters.FunctionName = replacements[parentKey];
             } else {
               input.Resource = replacements[parentKey];
@@ -84,6 +84,7 @@ class ServerlessStepFunctionsOffline {
           delete definition.States[key].ItemReader
           delete definition.States[key].ItemProcessor.ProcessorConfig
           delete definition.States[key].MaxConcurrencyPath
+          delete definition.States[key].Label
 
           const previousStateKey = Object.keys(definition.States).find(previousKey => {
             if (definition.States[previousKey].Type === 'Choice') {
