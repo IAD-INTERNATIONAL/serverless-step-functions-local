@@ -78,13 +78,15 @@ class ServerlessStepFunctionsOffline {
         const processorConfig = definition.States[key].ItemProcessor.ProcessorConfig
         if (processorConfig && processorConfig.Mode === 'DISTRIBUTED') {
           const { MaxItemsPerBatch, BatchInput } = definition.States[key].ItemBatcher || {}
-          const { Parameters } = definition.States[key].ItemReader || {}
+          const { Parameters, Resource, ReaderConfig } = definition.States[key].ItemReader || {}
+          const { ItemsPath } = definition.States[key]
 
           delete definition.States[key].ItemBatcher
           delete definition.States[key].ItemReader
           delete definition.States[key].ItemProcessor.ProcessorConfig
           delete definition.States[key].MaxConcurrencyPath
           delete definition.States[key].Label
+          delete definition.States[key].ItemsPath
 
           const previousStateKey = Object.keys(definition.States).find(previousKey => {
             if (definition.States[previousKey].Type === 'Choice') {
@@ -98,7 +100,8 @@ class ServerlessStepFunctionsOffline {
             Type: 'Task',
             Resource: this.config.distributedMapResource,
             Parameters: {
-              ...(Parameters || {}),
+              'Items.$': ItemsPath || '$',
+              ...(Resource ? { ItemReader: { Parameters, Resource, ReaderConfig }} : {}),
               MaxItemsPerBatch,
               ...(BatchInput || {})
             },
