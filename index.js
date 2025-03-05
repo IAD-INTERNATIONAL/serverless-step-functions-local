@@ -87,6 +87,7 @@ class ServerlessStepFunctionsOffline {
           delete definition.States[key].MaxConcurrencyPath
           delete definition.States[key].Label
           delete definition.States[key].ItemsPath
+          delete definition.States[key].ToleratedFailurePercentagePath
 
           const previousStateKey = Object.keys(definition.States).find(previousKey => {
             if (definition.States[previousKey].Type === 'Choice') {
