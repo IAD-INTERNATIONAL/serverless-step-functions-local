@@ -78,27 +78,39 @@ class ServerlessStepFunctionsOffline {
         const processorConfig = definition.States[key].ItemProcessor.ProcessorConfig
         if (processorConfig && processorConfig.Mode === 'DISTRIBUTED') {
           const { MaxItemsPerBatch, BatchInput } = definition.States[key].ItemBatcher || {}
-          const { Parameters } = definition.States[key].ItemReader || {}
+          const { Parameters, Resource, ReaderConfig } = definition.States[key].ItemReader || {}
+          const { ItemsPath } = definition.States[key]
 
           delete definition.States[key].ItemBatcher
           delete definition.States[key].ItemReader
           delete definition.States[key].ItemProcessor.ProcessorConfig
           delete definition.States[key].MaxConcurrencyPath
           delete definition.States[key].Label
+          delete definition.States[key].ItemsPath
+          delete definition.States[key].ToleratedFailurePercentagePath
 
           const previousStateKey = Object.keys(definition.States).find(previousKey => {
             if (definition.States[previousKey].Type === 'Choice') {
+              if (definition.States[previousKey].Default === key) {
+                return true
+              }
+
               return !!definition.States[previousKey].Choices.find(choice => choice.Next === key)
             }
 
             return definition.States[previousKey].Next === key
           })
 
+          if (!previousStateKey) {
+            throw new Error(`Unable to find previous state of "${key}"`)
+          }
+
           const itemReaderMockState = {
             Type: 'Task',
             Resource: this.config.distributedMapResource,
             Parameters: {
-              ...(Parameters || {}),
+              'Items.$': ItemsPath || '$',
+              ...(Resource ? { ItemReader: { Parameters, Resource, ReaderConfig }} : {}),
               MaxItemsPerBatch,
               ...(BatchInput || {})
             },
@@ -107,6 +119,10 @@ class ServerlessStepFunctionsOffline {
 
           const itemReaderMockStateKey = 'Prepare' + key
           definition.States[itemReaderMockStateKey] = itemReaderMockState
+          if (!definition.States[previousStateKey]) {
+            throw new Error(`Unable to find previous state "${previousStateKey}", only "${Object.keys(definition.States)}" available`)
+          }
+
           if (definition.States[previousStateKey].Type === 'Choice') {
             definition.States[previousStateKey].Choices = definition.States[previousStateKey].Choices.map(choice => {
               if (choice.Next && choice.Next === key) {
@@ -115,6 +131,11 @@ class ServerlessStepFunctionsOffline {
 
               return choice
             })
+
+            const choiceDefault = definition.States[previousStateKey].Default
+            if (choiceDefault && choiceDefault === key) {
+              definition.States[previousStateKey].Default = 'Prepare' + key
+            }
           } else {
             definition.States[previousStateKey].Next = itemReaderMockStateKey
           }
@@ -127,9 +148,30 @@ class ServerlessStepFunctionsOffline {
     return definition
   }
 
+  replaceAwsSdkCallToTaskMock(definition) {
+    for (const key in definition.States) {
+      if (definition.States[key].Type === 'Task') {
+        if (definition.States[key].Resource === 'arn:aws:states:::aws-sdk:s3:getObject') {
+          definition.States[key].Resource = this.config.awsSdkS3getObjectResource
+        }
+
+        if (definition.States[key].Resource === 'arn:aws:states:::aws-sdk:s3:putObject') {
+          definition.States[key].Resource = this.config.awsSdkS3putObjectResource
+        }
+      }
+
+      if (definition.States[key].Type == 'Map' && definition.States[key].ItemProcessor) {
+        definition.States[key].ItemProcessor = this.replaceAwsSdkCallToTaskMock(definition.States[key].ItemProcessor)
+      }
+    }
+
+    return definition
+  }
+
   async createEndpoints() {
     for (const stateMachineName in this.stateMachines) {
-      const definition = this.removeDistributedAttributes(this.stateMachines[stateMachineName].definition)
+      const definitionWithoutDistributionMap = this.removeDistributedAttributes(this.stateMachines[stateMachineName].definition)
+      const definition = this.replaceAwsSdkCallToTaskMock(definitionWithoutDistributionMap)
 
       const endpoint = await this.stepfunctionsAPI.createStateMachine({
         definition: JSON.stringify(definition),
