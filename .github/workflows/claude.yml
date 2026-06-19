@@ -1,0 +1,59 @@
+name: Claude PR Review
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Numéro de la PR à reviewer"
+        required: true
+        type: string
+      model:
+        description: "Modèle Claude à utiliser"
+        required: false
+        default: "claude-opus-4-8"
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude-review:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, '@claude review') &&
+       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve PR number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Claude review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY_CODE_REVIEW }}
+          model: ${{ github.event.inputs.model || 'claude-opus-4-8' }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            Utilise le skill `review` pour reviewer la PR #${{ steps.pr.outputs.number }}.
+            Poste la review en commentaire via `gh pr comment` et ajoute des
+            commentaires inline sur les lignes concernées.
+          claude_args: |
+            --allowed-tools "Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh api:*)"
+            --mcp-config '{"mcpServers":{"terraform":{"command":"docker","args":["run","-i","--rm","hashicorp/terraform-mcp-server"]},"aws-docs":{"command":"uvx","args":["awslabs.aws-documentation-mcp-server@latest"]}}}'
